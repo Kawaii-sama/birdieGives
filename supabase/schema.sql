@@ -77,7 +77,8 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
--- Prevent a non-admin from promoting themselves / forging subscription state
+-- Prevent a non-admin from promoting themselves / forging subscription state.
+-- Service role (used by Stripe webhook and server functions) bypasses this check.
 create or replace function public.protect_profile_fields()
 returns trigger
 language plpgsql
@@ -85,6 +86,11 @@ security definer
 set search_path = public
 as $$
 begin
+  -- Service role is allowed to update everything (Stripe webhook, admin API calls)
+  if current_setting('role', true) = 'service_role' then
+    return new;
+  end if;
+  -- Authenticated non-admins cannot touch sensitive subscription/role fields
   if not public.is_admin() then
     new.role                   := old.role;
     new.subscription_status    := old.subscription_status;
